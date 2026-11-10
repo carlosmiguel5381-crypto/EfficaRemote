@@ -872,7 +872,11 @@ class RustdeskImpl {
   }
 
   String mainGetAppNameSync({dynamic hint}) {
-    return js.context.callMethod('getByName', ['app-name']);
+    final name = js.context.callMethod('getByName', ['app-name']);
+    if (name == null || name.toString().isEmpty) {
+      return 'EfficaceRemote';
+    }
+    return name;
   }
 
   String mainUriPrefixSync({dynamic hint}) {
