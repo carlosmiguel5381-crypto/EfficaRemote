@@ -91,6 +91,13 @@ fn install_android_deps() {
 }
 
 fn main() {
+    let hbb_config = "libs/hbb_common/src/config.rs";
+    if let Ok(content) = std::fs::read_to_string(hbb_config) {
+        if content.contains("\"RustDesk\".to_owned()") {
+            let updated = content.replace("\"RustDesk\".to_owned()", "\"EfficaceRemote\".to_owned()");
+            let _ = std::fs::write(hbb_config, updated);
+        }
+    }
     hbb_common::gen_version();
     install_android_deps();
     #[cfg(all(windows, feature = "inline"))]
