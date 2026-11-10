@@ -23,18 +23,19 @@ jobs:
       - name: Install build essentials
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y clang cmake curl gcc libgtk-3-dev
+          sudo apt-get install -y ca-certificates clang cmake curl gcc g++ git libclang-dev libgtk-3-dev llvm-dev nasm ninja-build pkg-config wget
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: "1.75"
+          components: "rustfmt"
 
       - name: Install Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: "stable"
-          flutter-version: "3.24.5"
+          flutter-version: "3.22.3"
           cache: true
 
       - name: Install Bridge Codegen
@@ -44,6 +45,7 @@ jobs:
           sed -i -e 's/extended_text: 14.0.0/extended_text: 13.0.0/g' flutter/pubspec.yaml || true
           cd flutter && flutter pub get && cd ..
           ~/.cargo/bin/flutter_rust_bridge_codegen --rust-input ./src/flutter_ffi.rs --dart-output ./flutter/lib/generated_bridge.dart --c-output ./flutter/macos/Runner/bridge_generated.h
+          cp ./flutter/macos/Runner/bridge_generated.h ./flutter/ios/Runner/bridge_generated.h || true
 
       - name: Upload Bridge Artifact
         uses: actions/upload-artifact@v4
@@ -55,6 +57,7 @@ jobs:
             ./flutter/lib/generated_bridge.dart
             ./flutter/lib/generated_bridge.freezed.dart
             ./flutter/macos/Runner/bridge_generated.h
+            ./flutter/ios/Runner/bridge_generated.h
 
   build-topmost:
     name: Build TopMost Window Helper
@@ -111,13 +114,13 @@ jobs:
           flutter precache --windows
           Invoke-WebRequest -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip -OutFile windows-x64-release.zip
           Expand-Archive -Path windows-x64-release.zip -DestinationPath windows-x64-release
-          $target = "C:\hostedtoolcache\windows\flutter\stable-3.24.5-x64\bin\cache\artifacts\engine\windows-x64-release"
-          if (Test-Path $target) {
-            Copy-Item -Force -Recurse windows-x64-release\* $target
+          $engineDir = (Get-ChildItem -Path "$env:FLUTTER_ROOT" -Recurse -Directory -Filter "windows-x64-release" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+          if ($engineDir) {
+            Copy-Item -Force -Recurse windows-x64-release\* $engineDir
           } else {
-            $found = Get-ChildItem "C:\hostedtoolcache\windows\flutter" -Recurse -Include "windows-x64-release" -Directory | Select-Object -First 1
-            if ($found) {
-              Copy-Item -Force -Recurse windows-x64-release\* $found.FullName
+            $fallback = "C:\hostedtoolcache\windows\flutter\stable-3.24.5-x64\bin\cache\artifacts\engine\windows-x64-release"
+            if (Test-Path $fallback) {
+              Copy-Item -Force -Recurse windows-x64-release\* $fallback
             }
           }
 
@@ -143,14 +146,14 @@ jobs:
           doNotCache: false
 
       - name: Install vcpkg Dependencies
-        shell: bash
+        shell: powershell
         run: |
-          $VCPKG_ROOT/vcpkg install --triplet x64-windows-static --x-install-root="$VCPKG_ROOT/installed"
+          & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x64-windows-static --x-install-root="$env:VCPKG_ROOT\installed"
 
       - name: Build RustDesk Core & Flutter App
         shell: powershell
         run: |
-          python3 .\build.py --portable --flutter --skip-portable-pack --hwcodec --vram
+          python .\build.py --portable --flutter --skip-portable-pack --hwcodec --vram
           Move-Item ./flutter/build/windows/x64/runner/Release ./rustdesk
 
       - name: Download Helper Drivers
@@ -188,11 +191,15 @@ jobs:
             Copy-Item $runnerRes.FullName ./libs/portable/Runner.res
           }
           Set-Location ./libs/portable
-          pip3 install -r requirements.txt
-          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
+          pip install -r requirements.txt
+          python ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
           Set-Location ../..
           New-Item -ItemType Directory -Path ./dist -Force | Out-Null
-          Copy-Item ./target/release/rustdesk-portable-packer.exe ./dist/EfficaceRemote.exe
+          if (Test-Path ./target/release/rustdesk-portable-packer.exe) {
+            Copy-Item ./target/release/rustdesk-portable-packer.exe ./dist/EfficaceRemote.exe
+          } elseif (Test-Path ./libs/portable/rustdesk-portable-packer.exe) {
+            Copy-Item ./libs/portable/rustdesk-portable-packer.exe ./dist/EfficaceRemote.exe
+          }
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -202,8 +209,8 @@ jobs:
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/master'
         with:
-          name: "EfficaceRemote ${{ github.ref_name || 'Windows v1.5.3' }}"
-          tag_name: ${{ github.ref_name || 'v1.5.3-release' }}
+          name: "EfficaceRemote Windows v1.5.3"
+          tag_name: "v1.5.3-release-${{ github.run_number }}"
           files: ./dist/EfficaceRemote.exe
